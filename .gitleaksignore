@@ -1,0 +1,5 @@
+# Gitleaks findings that were reviewed and are not real secrets.
+# Format: <commit>:<file>:<rule-id>:<line>
+
+# Dummy JWT key in a unit test (replaced by a random key in a later commit)
+1b405c1faeba11aa6538f17bca7b8d04292ceb5d:services/user-service/src/test/java/com/pgmart/user/TokensTest.java:generic-api-key:12
