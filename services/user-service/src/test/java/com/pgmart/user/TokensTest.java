@@ -4,12 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
 class TokensTest {
 
-    private static final String SECRET = "test-secret-that-is-long-enough-123456";
+    // Random keys made for each test run, so no secret-looking value is written in the code
+    private static final String SECRET = randomSecret();
+
+    private static String randomSecret() {
+        return UUID.randomUUID() + "-" + UUID.randomUUID(); // 73 characters, more than the 32 needed
+    }
 
     @Test
     void issuedTokenCanBeRead() {
@@ -26,7 +32,7 @@ class TokensTest {
     @Test
     void tokenFromAnotherSecretIsRejected() {
         var user = new Users.User(7, "a@b.com", "Asha", null, "x", "CUSTOMER", true);
-        String other = new Tokens("another-secret-that-is-long-enough-99", Duration.ofHours(1)).issue(user);
+        String other = new Tokens(randomSecret(), Duration.ofHours(1)).issue(user);
 
         assertThatThrownBy(() -> new Tokens(SECRET, Duration.ofHours(1)).read("Bearer " + other))
                 .isInstanceOf(ApiException.class);
