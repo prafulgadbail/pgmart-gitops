@@ -4,7 +4,7 @@
 
 <p align="center">
   Microservices e-commerce app on AWS EKS.<br>
-  Modern GitOps with GitHub Actions, Argo CD, Trivy, Helm and Karpenter autoscaling.
+  Modern GitOps with GitHub Actions, SonarQube Cloud, Trivy, Argo CD, Helm and Karpenter autoscaling.
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <img alt="GitHub Actions" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white">
   <img alt="Argo CD" src="https://img.shields.io/badge/CD-Argo_CD-EF7B4D?logo=argo&logoColor=white">
   <img alt="Gitleaks" src="https://img.shields.io/badge/Secrets-Gitleaks-D6336C">
-  <img alt="CodeQL" src="https://img.shields.io/badge/Code_scan-CodeQL-2F363D?logo=github&logoColor=white">
+  <img alt="SonarQube Cloud" src="https://img.shields.io/badge/Quality-SonarQube_Cloud-126ED3?logo=sonarqubecloud&logoColor=white">
   <img alt="Trivy" src="https://img.shields.io/badge/Security-Trivy-1904DA?logo=trivy&logoColor=white">
 </p>
 
@@ -46,7 +46,7 @@ The ALB is created from the Kubernetes Ingress by the AWS Load Balancer Controll
 
 CI and CD are split. **GitHub Actions** builds, tests, scans and pushes the image, then writes the new image tag to a separate **config repository** (`pgmart-gitops-config`: Helm values and Argo CD applications). **Argo CD**, running inside EKS, watches that repository and rolls out whatever it says. CI never gets access to the cluster, and every deployment is a Git commit that can be reviewed or reverted.
 
-GitHub Actions signs in to AWS with **OIDC**: a short-lived role for each run, no AWS keys stored in GitHub. Each service and the frontend has its own workflow, so a change in one service builds and deploys only that service.
+Code quality is checked by **SonarQube Cloud**, one project per service and one for the frontend. GitHub Actions signs in to AWS with **OIDC**: a short-lived role for each run, no AWS keys stored in GitHub. Each service and the frontend has its own workflow, so a change in one service builds and deploys only that service.
 
 **Backend**: `.github/workflows/<service>.yml`
 
@@ -54,16 +54,16 @@ GitHub Actions signs in to AWS with **OIDC**: a short-lived role for each run, n
 |---|---|---|
 | 1 | Checkout | `actions/checkout` |
 | 2 | Secret scan | **Gitleaks**: stops if a password or key was committed |
-| 3 | Build and unit test | **Maven**: `mvn verify` |
-| 4 | Dependency scan | **Trivy** `fs`: known vulnerabilities in the Maven dependencies (`pom.xml`) |
-| 5 | Code scan | **CodeQL**: findings appear in the repository's Security tab |
+| 3 | Build and unit test | **Maven**: `mvn verify`, test coverage with **JaCoCo** |
+| 4 | SonarQube Cloud | Bugs, vulnerabilities, code smells, duplication and coverage, checked by the **Quality Gate**; pull requests get a summary comment |
+| 5 | Dependency scan | **Trivy** `fs`: known vulnerabilities in the Maven dependencies (`pom.xml`) |
 | 6 | Docker build | **Docker Buildx** |
 | 7 | Image scan | **Trivy** `image`: stops on HIGH or CRITICAL |
 | 8 | Push to ECR | Image tagged with the Git commit |
 | 9 | Update image tag | Commits the new tag to the service's values file in the config repository |
 | 10 | Argo CD sync | Argo CD sees the commit and rolls out the new version in namespace `pgmart` |
 
-**Frontend**: `.github/workflows/frontend.yml`. No container and no Argo CD: Checkout → Gitleaks → `npm ci` → type check and tests → Trivy `fs` → CodeQL → `npm run build` → upload to S3 (OIDC) → CloudFront invalidation, so visitors get the new version at once.
+**Frontend**: `.github/workflows/frontend.yml`. No container and no Argo CD: Checkout → Gitleaks → `npm ci` → type check and tests (Vitest coverage) → SonarQube Cloud and Quality Gate → `npm run build` → Trivy `fs` → upload to S3 (OIDC) → CloudFront invalidation, so visitors get the new version at once.
 
 ## Tech stack
 
@@ -73,7 +73,7 @@ GitHub Actions signs in to AWS with **OIDC**: a short-lived role for each run, n
 | Containers | Docker (multi-stage, non-root) · Amazon ECR |
 | Kubernetes | Amazon EKS · Helm · AWS Load Balancer Controller · External Secrets |
 | AWS | VPC · Route 53 · ACM · CloudFront · S3 · RDS · Secrets Manager · SES |
-| CI/CD | GitHub Actions · Argo CD · Trivy · Gitleaks · CodeQL |
+| CI/CD | GitHub Actions · SonarQube Cloud · Trivy · Gitleaks · Argo CD |
 
 ## Repository layout
 
@@ -83,6 +83,7 @@ services/
   catalog-service/     same layout
   order-service/       same layout
 frontend/              DevOps page and store · React, TypeScript
+.github/workflows/     CI: one workflow per service and the frontend; reusable-java-service.yml is the shared Java pipeline
 docs/                  diagrams and logo
 local/                 database setup for docker compose
 docker-compose.yml     the whole app on a laptop
