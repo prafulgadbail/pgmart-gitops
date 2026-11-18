@@ -1,0 +1,109 @@
+# CI for one Spring Boot service. Called by user-service.yml, catalog-service.yml and order-service.yml.
+# Stages: secret scan → build, unit test and SonarQube Cloud → dependency scan → Docker build and image scan.
+# Nothing is pushed yet: ECR push and the GitOps image tag update are added once AWS exists.
+
+name: reusable-java-service
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Folder under services/, e.g. user-service
+        required: true
+        type: string
+    secrets:
+      SONAR_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  SERVICE_DIR: services/${{ inputs.service }}
+  IMAGE: pgmart/${{ inputs.service }}:${{ github.sha }}
+
+jobs:
+  secret-scan:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # Gitleaks lists the commits of a pull request
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history, so every new commit is scanned
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+
+  build-test:
+    name: Build, unit test and SonarQube Cloud
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # SonarQube Cloud uses the history to find new code
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/pom.xml
+      - name: Build and unit test (Maven)
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: mvn -B verify
+      - name: SonarQube Cloud analysis and Quality Gate
+        working-directory: ${{ env.SERVICE_DIR }}
+        # Report only for now: the Quality Gate needs 80% test coverage on new code.
+        # Remove this line once the unit tests are there, so a failed gate stops the pipeline.
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: >-
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar
+          -Dsonar.host.url=https://sonarcloud.io
+          -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+          -Dsonar.projectKey=${{ vars.SONAR_ORGANIZATION }}_pgmart-gitops_${{ inputs.service }}
+          -Dsonar.qualitygate.wait=true
+
+  dependency-scan:
+    name: Dependency scan (Trivy fs)
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ env.SERVICE_DIR }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  image:
+    name: Docker build and image scan (Trivy)
+    needs: dependency-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Docker build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.SERVICE_DIR }}
+          tags: ${{ env.IMAGE }}
+          load: true # keep the image on the runner for the scan; not pushed yet
+          cache-from: type=gha,scope=${{ inputs.service }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.service }}
+      - name: Image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

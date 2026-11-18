@@ -1,0 +1,37 @@
+# CI for order-service: runs only when its code (or the shared CI) changes.
+
+name: order-service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - services/order-service/**
+      - .github/workflows/order-service.yml
+      - .github/workflows/reusable-java-service.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - services/order-service/**
+      - .github/workflows/order-service.yml
+      - .github/workflows/reusable-java-service.yml
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run still in progress
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-java-service.yml
+    with:
+      service: order-service
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    permissions:
+      contents: read
+      pull-requests: read
