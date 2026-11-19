@@ -1,5 +1,5 @@
 # CI for the frontend (DevOps page, store and admin).
-# Stages: secret scan → type check, unit test, SonarQube Cloud and build → dependency scan.
+# Stages, one job each: secret scan → build and unit test → dependency scan → SonarQube analysis → Quality Gate
 # No container: on AWS the built files go to S3 + CloudFront (added once AWS exists).
 
 name: frontend
@@ -45,13 +45,11 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: false
 
   build-test:
-    name: Type check, unit test, SonarQube Cloud and build
+    name: Build and unit test (npm)
     needs: secret-scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # SonarQube Cloud uses the history to find new code
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -59,13 +57,52 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
-      - name: Unit test with coverage
+      - name: Unit test with coverage (Vitest)
         run: npm run test:coverage
-      - name: SonarQube Cloud analysis and Quality Gate
+      - run: npm run build
+      - name: Keep the coverage report for SonarQube Cloud
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/lcov.info
+          retention-days: 1
+      - name: Keep the built site
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  dependency-scan:
+    name: Dependency scan (Trivy fs)
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Known vulnerabilities in the npm dependencies (package-lock.json)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: frontend
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  sonarqube-analysis:
+    name: SonarQube analysis
+    needs: dependency-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # SonarQube Cloud uses the history to find new code
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+      - name: Send the code, tests and coverage to SonarQube Cloud
         uses: SonarSource/sonarqube-scan-action@v8.4.0
-        # Report only for now: the Quality Gate needs 80% test coverage on new code.
-        # Remove this line once the unit tests are there, so a failed gate stops the pipeline.
-        continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
@@ -79,25 +116,25 @@ jobs:
             -Dsonar.exclusions=**/*.test.ts,**/*.test.tsx
             -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-            -Dsonar.qualitygate.wait=true
-      - run: npm run build
-      - uses: actions/upload-artifact@v7
+      - name: Keep the analysis id for the Quality Gate
+        uses: actions/upload-artifact@v7
         with:
-          name: frontend-dist
-          path: frontend/dist
-          retention-days: 7
+          name: frontend-sonar-report
+          path: frontend/.scannerwork/report-task.txt
+          include-hidden-files: true # .scannerwork is a hidden folder
+          retention-days: 1
 
-  dependency-scan:
-    name: Dependency scan (Trivy fs)
-    needs: build-test
+  quality-gate:
+    name: Quality Gate
+    needs: sonarqube-analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: aquasecurity/trivy-action@v0.36.0
+      - uses: actions/download-artifact@v8
         with:
-          scan-type: fs
-          scan-ref: frontend
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+          name: frontend-sonar-report
+      - name: Wait for the SonarQube Cloud Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@v1.2.1
+        with:
+          scanMetadataReportFile: report-task.txt
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

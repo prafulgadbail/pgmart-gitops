@@ -1,5 +1,7 @@
 # CI for one Spring Boot service. Called by user-service.yml, catalog-service.yml and order-service.yml.
-# Stages: secret scan → build, unit test and SonarQube Cloud → dependency scan → Docker build and image scan.
+# Stages, one job each:
+#   secret scan → build and unit test → dependency scan → SonarQube analysis → Quality Gate
+#                                                                         └→ Docker build → image scan
 # Nothing is pushed yet: ECR push and the GitOps image tag update are added once AWS exists.
 
 name: reusable-java-service
@@ -39,8 +41,50 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: false
 
   build-test:
-    name: Build, unit test and SonarQube Cloud
+    name: Build and unit test (Maven)
     needs: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/pom.xml
+      - name: mvn verify (compile, unit tests, JaCoCo coverage)
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: mvn -B verify
+      - name: Keep the compiled code and test reports for SonarQube Cloud
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.service }}-build
+          path: |
+            ${{ env.SERVICE_DIR }}/target/classes
+            ${{ env.SERVICE_DIR }}/target/test-classes
+            ${{ env.SERVICE_DIR }}/target/surefire-reports
+            ${{ env.SERVICE_DIR }}/target/site/jacoco
+          retention-days: 1
+
+  dependency-scan:
+    name: Dependency scan (Trivy fs)
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Known vulnerabilities in the Maven dependencies (pom.xml)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ env.SERVICE_DIR }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  sonarqube-analysis:
+    name: SonarQube analysis
+    needs: dependency-scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -52,14 +96,12 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: ${{ env.SERVICE_DIR }}/pom.xml
-      - name: Build and unit test (Maven)
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.service }}-build
+          path: ${{ env.SERVICE_DIR }}/target
+      - name: Send the code, tests and coverage to SonarQube Cloud
         working-directory: ${{ env.SERVICE_DIR }}
-        run: mvn -B verify
-      - name: SonarQube Cloud analysis and Quality Gate
-        working-directory: ${{ env.SERVICE_DIR }}
-        # Report only for now: the Quality Gate needs 80% test coverage on new code.
-        # Remove this line once the unit tests are there, so a failed gate stops the pipeline.
-        continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: >-
@@ -67,42 +109,65 @@ jobs:
           -Dsonar.host.url=https://sonarcloud.io
           -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
           -Dsonar.projectKey=${{ vars.SONAR_ORGANIZATION }}_pgmart-gitops_${{ inputs.service }}
-          -Dsonar.qualitygate.wait=true
+      - name: Keep the analysis id for the Quality Gate
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.service }}-sonar-report
+          path: ${{ env.SERVICE_DIR }}/target/sonar/report-task.txt
+          retention-days: 1
 
-  dependency-scan:
-    name: Dependency scan (Trivy fs)
-    needs: build-test
+  quality-gate:
+    name: Quality Gate
+    needs: sonarqube-analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: aquasecurity/trivy-action@v0.36.0
+      - uses: actions/download-artifact@v8
         with:
-          scan-type: fs
-          scan-ref: ${{ env.SERVICE_DIR }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+          name: ${{ inputs.service }}-sonar-report
+      - name: Wait for the SonarQube Cloud Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@v1.2.1
+        with:
+          scanMetadataReportFile: report-task.txt
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-  image:
-    name: Docker build and image scan (Trivy)
-    needs: dependency-scan
+  docker-build:
+    name: Docker build
+    # Not blocked by the Quality Gate yet: the gate needs 80% test coverage on new code.
+    # Once the unit tests are there, change this to: needs: quality-gate
+    needs: sonarqube-analysis
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      - name: Docker build
+      - name: Build the image
         uses: docker/build-push-action@v7
         with:
           context: ${{ env.SERVICE_DIR }}
           tags: ${{ env.IMAGE }}
-          load: true # keep the image on the runner for the scan; not pushed yet
+          outputs: type=docker,dest=${{ runner.temp }}/image.tar # saved as a file for the scan; not pushed yet
           cache-from: type=gha,scope=${{ inputs.service }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service }}
-      - name: Image scan
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Keep the image for the scan
+        uses: actions/upload-artifact@v7
         with:
-          image-ref: ${{ env.IMAGE }}
+          name: ${{ inputs.service }}-image
+          path: ${{ runner.temp }}/image.tar
+          retention-days: 1
+
+  image-scan:
+    name: Image scan (Trivy image)
+    needs: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.service }}-image
+          path: ${{ runner.temp }}
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          input: ${{ runner.temp }}/image.tar
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
