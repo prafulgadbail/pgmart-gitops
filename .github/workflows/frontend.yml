@@ -1,0 +1,126 @@
+# CI pipeline for the frontend (DevOps page, store and admin)
+# Pull requests: stages 1-5. Push to main: stages 1-6.
+# Any failed stage stops the pipeline. No Docker image: the site is static files in S3 behind CloudFront.
+
+name: frontend
+
+# ---------- When it runs: pull requests and pushes to main that change the frontend ----------
+on:
+  pull_request:
+    branches: [main]
+    paths: [frontend/**, .github/workflows/frontend.yml]
+  push:
+    branches: [main]
+    paths: [frontend/**, .github/workflows/frontend.yml]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read        # read the code
+  pull-requests: read   # Gitleaks reads the commits of a pull request
+  id-token: write       # OIDC login to AWS, no access keys stored in GitHub
+
+# ---------- Environment ----------
+env:
+  APP_DIR: frontend
+  SONAR_PROJECT: ${{ vars.SONAR_ORGANIZATION }}_pgmart-gitops_frontend
+  SITE_DOMAIN: ${{ vars.FRONTEND_DOMAIN }}
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      # ---------- Setup: code and Node.js ----------
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history for Gitleaks and SonarQube
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ---------- 1. Secret scan ----------
+      - name: 1. Secret scan (Gitleaks)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+
+      # ---------- 2. Build and unit test: install, type check, tests with coverage, build ----------
+      - name: 2. Build and unit test (npm)
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          npm ci
+          npm run typecheck
+          npm run test:coverage
+          npm run build
+
+      # ---------- 3. Dependency scan: libraries in package-lock.json ----------
+      - name: 3. Dependency scan (Trivy fs)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ env.APP_DIR }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # ---------- 4. SonarQube analysis ----------
+      - name: 4. SonarQube analysis
+        uses: SonarSource/sonarqube-scan-action@v8.4.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          projectBaseDir: ${{ env.APP_DIR }}
+          args: >
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT }}
+            -Dsonar.sources=src
+            -Dsonar.tests=src
+            -Dsonar.exclusions=**/*.test.ts
+            -Dsonar.test.inclusions=**/*.test.ts
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
+      # ---------- 5. Quality Gate ----------
+      - name: 5. Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@v1.2.1
+        with:
+          scanMetadataReportFile: ${{ env.APP_DIR }}/.scannerwork/report-task.txt
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # ---------- 6. Upload the site to S3 and refresh CloudFront (main only) ----------
+      - name: Log in to AWS
+        if: github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: 6. Upload to S3 and refresh CloudFront
+        if: github.ref == 'refs/heads/main'
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          BUCKET="pgmart-gitops-frontend-$(aws sts get-caller-identity --query Account --output text)"
+          aws s3 sync dist "s3://$BUCKET" --delete
+          DISTRIBUTION=$(aws cloudfront list-distributions --output text \
+            --query "DistributionList.Items[?Aliases.Items && contains(Aliases.Items, '$SITE_DOMAIN')].Id | [0]")
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/*"
+
+      # ---------- Test and coverage reports to download (kept even when a stage fails) ----------
+      - name: Test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-reports
+          path: frontend/coverage/
+          retention-days: 30

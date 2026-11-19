@@ -32,5 +32,10 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // `npm run test:coverage` writes coverage/lcov.info, which SonarQube Cloud reads
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+    },
   },
 });
