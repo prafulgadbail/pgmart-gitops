@@ -1,5 +1,7 @@
 # CI for the frontend (DevOps page, store and admin).
-# Stages, one job each: secret scan → build and unit test → dependency scan → SonarQube analysis → Quality Gate
+# Stages run one after another; a failed stage stops everything after it:
+#   secret scan → build and unit test → dependency scan → SonarQube analysis → Quality Gate
+# Every scan writes a report to the run's Summary page and keeps it as a downloadable artifact.
 # No container: on AWS the built files go to S3 + CloudFront (added once AWS exists).
 
 name: frontend
@@ -24,10 +26,6 @@ concurrency:
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: frontend
-
 jobs:
   secret-scan:
     name: Secret scan (Gitleaks)
@@ -39,6 +37,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # Writes its findings to the Summary page and keeps gitleaks-results.sarif as an artifact
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,6 +47,9 @@ jobs:
     name: Build and unit test (npm)
     needs: secret-scan
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -60,13 +62,14 @@ jobs:
       - name: Unit test with coverage (Vitest)
         run: npm run test:coverage
       - run: npm run build
-      - name: Keep the coverage report for SonarQube Cloud
+      - name: Test and coverage reports
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-coverage
-          path: frontend/coverage/lcov.info
-          retention-days: 1
-      - name: Keep the built site
+          name: frontend-test-reports
+          path: frontend/coverage
+          retention-days: 30
+      - name: Built site
         uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
@@ -88,6 +91,23 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          output: trivy-dependency-scan.txt
+      - name: Report on the Summary page
+        if: always()
+        run: |
+          {
+            echo "### Dependency scan (Trivy fs): frontend"
+            echo "<pre>"
+            cat trivy-dependency-scan.txt
+            echo "</pre>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Dependency scan report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dependency-scan
+          path: trivy-dependency-scan.txt
+          retention-days: 30
 
   sonarqube-analysis:
     name: SonarQube analysis
@@ -99,7 +119,7 @@ jobs:
           fetch-depth: 0 # SonarQube Cloud uses the history to find new code
       - uses: actions/download-artifact@v8
         with:
-          name: frontend-coverage
+          name: frontend-test-reports
           path: frontend/coverage
       - name: Send the code, tests and coverage to SonarQube Cloud
         uses: SonarSource/sonarqube-scan-action@v8.4.0
@@ -116,10 +136,10 @@ jobs:
             -Dsonar.exclusions=**/*.test.ts,**/*.test.tsx
             -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-      - name: Keep the analysis id for the Quality Gate
+      - name: Hand over the analysis id to the Quality Gate
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-sonar-report
+          name: frontend-sonar-task
           path: frontend/.scannerwork/report-task.txt
           include-hidden-files: true # .scannerwork is a hidden folder
           retention-days: 1
@@ -131,10 +151,18 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: frontend-sonar-report
+          name: frontend-sonar-task
       - name: Wait for the SonarQube Cloud Quality Gate
+        id: gate
         uses: SonarSource/sonarqube-quality-gate-action@v1.2.1
         with:
           scanMetadataReportFile: report-task.txt
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Report on the Summary page
+        if: always()
+        run: |
+          {
+            echo "### Quality Gate (SonarQube Cloud): ${{ steps.gate.outputs.quality-gate-status }}"
+            echo "Full report: $(grep '^dashboardUrl=' report-task.txt | cut -d= -f2-)"
+          } >> "$GITHUB_STEP_SUMMARY"

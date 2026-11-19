@@ -1,7 +1,8 @@
 # CI for one Spring Boot service. Called by user-service.yml, catalog-service.yml and order-service.yml.
-# Stages, one job each:
+# Stages run one after another; a failed stage stops everything after it:
 #   secret scan → build and unit test → dependency scan → SonarQube analysis → Quality Gate
-#                                                                         └→ Docker build → image scan
+#   → Docker build → image scan
+# Every scan writes a report to the run's Summary page and keeps it as a downloadable artifact.
 # Nothing is pushed yet: ECR push and the GitOps image tag update are added once AWS exists.
 
 name: reusable-java-service
@@ -35,6 +36,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history, so every new commit is scanned
+      # Writes its findings to the Summary page and keeps gitleaks-results.sarif as an artifact
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -55,7 +57,16 @@ jobs:
       - name: mvn verify (compile, unit tests, JaCoCo coverage)
         working-directory: ${{ env.SERVICE_DIR }}
         run: mvn -B verify
-      - name: Keep the compiled code and test reports for SonarQube Cloud
+      - name: Test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.service }}-test-reports
+          path: |
+            ${{ env.SERVICE_DIR }}/target/surefire-reports
+            ${{ env.SERVICE_DIR }}/target/site/jacoco
+          retention-days: 30
+      - name: Hand over the compiled code to SonarQube analysis
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.service }}-build
@@ -81,6 +92,23 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          output: trivy-dependency-scan.txt
+      - name: Report on the Summary page
+        if: always()
+        run: |
+          {
+            echo "### Dependency scan (Trivy fs): ${{ inputs.service }}"
+            echo "<pre>"
+            cat trivy-dependency-scan.txt
+            echo "</pre>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Dependency scan report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.service }}-dependency-scan
+          path: trivy-dependency-scan.txt
+          retention-days: 30
 
   sonarqube-analysis:
     name: SonarQube analysis
@@ -109,10 +137,10 @@ jobs:
           -Dsonar.host.url=https://sonarcloud.io
           -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
           -Dsonar.projectKey=${{ vars.SONAR_ORGANIZATION }}_pgmart-gitops_${{ inputs.service }}
-      - name: Keep the analysis id for the Quality Gate
+      - name: Hand over the analysis id to the Quality Gate
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.service }}-sonar-report
+          name: ${{ inputs.service }}-sonar-task
           path: ${{ env.SERVICE_DIR }}/target/sonar/report-task.txt
           retention-days: 1
 
@@ -123,19 +151,25 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: ${{ inputs.service }}-sonar-report
+          name: ${{ inputs.service }}-sonar-task
       - name: Wait for the SonarQube Cloud Quality Gate
+        id: gate
         uses: SonarSource/sonarqube-quality-gate-action@v1.2.1
         with:
           scanMetadataReportFile: report-task.txt
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Report on the Summary page
+        if: always()
+        run: |
+          {
+            echo "### Quality Gate (SonarQube Cloud): ${{ steps.gate.outputs.quality-gate-status }}"
+            echo "Full report: $(grep '^dashboardUrl=' report-task.txt | cut -d= -f2-)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   docker-build:
     name: Docker build
-    # Not blocked by the Quality Gate yet: the gate needs 80% test coverage on new code.
-    # Once the unit tests are there, change this to: needs: quality-gate
-    needs: sonarqube-analysis
+    needs: quality-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -148,7 +182,7 @@ jobs:
           outputs: type=docker,dest=${{ runner.temp }}/image.tar # saved as a file for the scan; not pushed yet
           cache-from: type=gha,scope=${{ inputs.service }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service }}
-      - name: Keep the image for the scan
+      - name: Hand over the image to the image scan
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.service }}-image
@@ -164,7 +198,8 @@ jobs:
         with:
           name: ${{ inputs.service }}-image
           path: ${{ runner.temp }}
-      - uses: aquasecurity/trivy-action@v0.36.0
+      - name: Known vulnerabilities in the image (OS packages and the app's libraries)
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           input: ${{ runner.temp }}/image.tar
@@ -172,3 +207,20 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          output: trivy-image-scan.txt
+      - name: Report on the Summary page
+        if: always()
+        run: |
+          {
+            echo "### Image scan (Trivy image): ${{ inputs.service }}"
+            echo "<pre>"
+            cat trivy-image-scan.txt
+            echo "</pre>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Image scan report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.service }}-image-scan
+          path: trivy-image-scan.txt
+          retention-days: 30
