@@ -6,7 +6,7 @@ const LOGOS = logos as Record<string, string>;
 const CONTENT = books as unknown as Record<string, BookContent>;
 
 /** Tool logos available for covers (the admin picks one when adding a book). */
-export const LOGO_KEYS = Object.keys(LOGOS).filter((k) => k !== 'book').sort();
+export const LOGO_KEYS = Object.keys(LOGOS).filter((k) => k !== 'book').sort((a, b) => a.localeCompare(b));
 
 let counter = 0;
 

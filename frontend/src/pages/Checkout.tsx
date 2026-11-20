@@ -100,7 +100,7 @@ export function Checkout() {
       const result = await payWithRazorpay(placed.payment, placed.order.number, user!, address.mobile);
       if (!result.paid) {
         toast(`${result.reason}. You can pay from Your orders within 30 minutes.`);
-        navigate('/orders');
+        void navigate('/orders');
         return;
       }
       const paid = await api.confirmPayment(placed.order.id, {

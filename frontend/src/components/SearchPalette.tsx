@@ -34,12 +34,13 @@ export function SearchPalette() {
   const hits = books.filter((b) => `${b.title} ${b.subtitle} ${b.topic} ${b.logo}`.toLowerCase().includes(t)).slice(0, 12);
 
   return (
-    <div className={`ov${paletteOpen ? ' show' : ''}`} onClick={(e) => e.target === e.currentTarget && setPaletteOpen(false)}>
+    <div className={`ov${paletteOpen ? ' show' : ''}`}>
+      <button type="button" className="bk" aria-label="Close search" tabIndex={-1} onClick={() => setPaletteOpen(false)} />
       <div className="pal">
         <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search books or tools..." autoComplete="off" />
         <div>
           {hits.map((b) => (
-            <button key={b.id} onClick={() => { setPaletteOpen(false); navigate(`/book/${b.id}`); }}>
+            <button key={b.id} onClick={() => { setPaletteOpen(false); void navigate(`/book/${b.id}`); }}>
               <Thumb book={b} />
               <span>{b.title} <small className="mut">{inr(b.price)}</small></span>
             </button>

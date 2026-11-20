@@ -1,3 +1,4 @@
+import { startTransition } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../state/store';
 
@@ -59,9 +60,12 @@ export function Header() {
               className="btn"
               id="lo"
               onClick={() => {
-                signOut();
+                // One update: on a page that needs login, signing out alone would open the login page
+                startTransition(() => {
+                  void navigate('/');
+                  signOut();
+                });
                 toast('Logged out');
-                navigate('/');
               }}
             >
               Logout
@@ -94,7 +98,7 @@ export function AdminHeader() {
           className="btn"
           id="lo"
           onClick={() => {
-            navigate('/login');
+            void navigate('/login');
             signOut();
             toast('Logged out');
           }}

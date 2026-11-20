@@ -31,11 +31,15 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'node',
+    // Components render in a simulated browser (jsdom); test/ holds the fake backend and helpers
+    environment: 'jsdom',
+    setupFiles: ['./test/setup.ts'],
     // `npm run test:coverage` writes coverage/lcov.info, which SonarQube Cloud reads
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}'],
     },
   },
 });

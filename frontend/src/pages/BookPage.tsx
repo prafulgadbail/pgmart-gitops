@@ -144,7 +144,7 @@ export function BookPage() {
             {book.stock > 0 && (
               <button className="btn" onClick={() => {
                 if (!cart[book.id]) addToCart(book.id, 1);
-                navigate('/checkout');
+                void navigate('/checkout');
               }}>Buy now</button>
             )}
             <button className="btn" onClick={() => void toggleWish(book.id)}>{saved ? '♥ In wishlist' : '♡ Wishlist'}</button>

@@ -1,9 +1,10 @@
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { contentFor } from '../content';
 import { discount, inr } from '../format';
 import { useStore } from '../state/store';
 import type { Book } from '../types';
 import { Cover } from './Cover';
+import { onEnter } from './keys';
 import { useWishlistToggle } from './useWishlistToggle';
 
 /** Add to cart button, or − qty + once the book is in the cart. */
@@ -33,10 +34,12 @@ export function BookCard({ book }: { book: Book }) {
   const toggleWish = useWishlistToggle();
   const flow = contentFor(book.id).flow ?? book.highlights.map((h) => `${h}|`);
   const saved = wishlist.has(book.id);
-  const open = () => navigate(`/book/${book.id}`);
+  const open = () => {
+    void navigate(`/book/${book.id}`);
+  };
   return (
     <article className="cd">
-      <div className="cw" onClick={open}>
+      <div className="cw" role="link" tabIndex={0} aria-label={`Open ${book.title}`} onClick={open} onKeyDown={onEnter(open)}>
         <div className="book">
           <div className="in">
             <b>{book.title}</b>
@@ -65,7 +68,7 @@ export function BookCard({ book }: { book: Book }) {
         </button>
         {book.stock > 0 && book.stock <= 5 && <span className="lw">Only {book.stock} left</span>}
       </div>
-      <h4 onClick={open}>{book.title}</h4>
+      <h4><Link to={`/book/${book.id}`}>{book.title}</Link></h4>
       <div className="pr">
         <b>{inr(book.price)}</b>
         {book.mrp > book.price && <s>{inr(book.mrp)}</s>}

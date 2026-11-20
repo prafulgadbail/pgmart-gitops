@@ -36,6 +36,15 @@ class TokensTest {
     }
 
     @Test
+    void missingOrMalformedHeaderIsRejected() {
+        Tokens tokens = new Tokens(SECRET, Duration.ofHours(1));
+
+        assertThatThrownBy(() -> tokens.read(null)).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> tokens.read("Basic abc")).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> tokens.read("Bearer not-a-jwt")).isInstanceOf(ApiException.class);
+    }
+
+    @Test
     void shortSecretIsRefused() {
         assertThatThrownBy(() -> new Tokens("short", Duration.ofHours(1)))
                 .isInstanceOf(IllegalStateException.class);
