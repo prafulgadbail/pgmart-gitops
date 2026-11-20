@@ -34,7 +34,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 class OrderServiceTest {
 
-    private final DataSource dataSource = PostgresForTests.dataSource();
+    private final DataSource dataSource = TestDatabase.dataSource();
     private final JdbcClient db = JdbcClient.create(dataSource);
     private final Orders orders = new Orders(db);
     private final CatalogClient catalog = mock(CatalogClient.class);

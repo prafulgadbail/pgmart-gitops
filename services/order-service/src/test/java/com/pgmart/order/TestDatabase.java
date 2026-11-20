@@ -11,12 +11,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * One PostgreSQL container for all repository tests of this service, with the same Flyway migrations
  * (tables only) as production. Testcontainers removes the container when the tests end.
  */
-final class PostgresForTests {
+final class TestDatabase {
 
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
     private static DataSource dataSource;
 
-    private PostgresForTests() {
+    private TestDatabase() {
     }
 
     static synchronized DataSource dataSource() {

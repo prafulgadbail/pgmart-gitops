@@ -11,7 +11,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /** The order SQL against a real PostgreSQL. */
 class OrdersTest {
 
-    private final JdbcClient db = PostgresForTests.jdbcClient();
+    private final JdbcClient db = TestDatabase.jdbcClient();
     private final Orders orders = new Orders(db);
 
     @Test

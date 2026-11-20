@@ -91,12 +91,12 @@ public class Razorpay {
 
     /** Checkout success: signature = HMAC-SHA256(order_id + "|" + payment_id, key secret). */
     public boolean paymentSignatureValid(String razorpayOrderId, String paymentId, String signature) {
-        return enabled() && signature != null && equal(hmac(keySecret, razorpayOrderId + "|" + paymentId), signature);
+        return enabled() && signature != null && sameSignature(hmac(keySecret, razorpayOrderId + "|" + paymentId), signature);
     }
 
     /** Webhook: X-Razorpay-Signature = HMAC-SHA256(raw body, webhook secret). */
     public boolean webhookSignatureValid(String rawBody, String signature) {
-        return !webhookSecret.isBlank() && signature != null && equal(hmac(webhookSecret, rawBody), signature);
+        return !webhookSecret.isBlank() && signature != null && sameSignature(hmac(webhookSecret, rawBody), signature);
     }
 
     static String hmac(String secret, String data) {
@@ -109,7 +109,7 @@ public class Razorpay {
         }
     }
 
-    private static boolean equal(String a, String b) {
+    private static boolean sameSignature(String a, String b) {
         return MessageDigest.isEqual(a.getBytes(StandardCharsets.UTF_8), b.getBytes(StandardCharsets.UTF_8));
     }
 }

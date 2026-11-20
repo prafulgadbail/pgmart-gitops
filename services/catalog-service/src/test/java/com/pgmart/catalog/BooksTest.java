@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 /** The catalog SQL against a real PostgreSQL with the seeded books. */
 class BooksTest {
 
-    private final Books books = new Books(PostgresForTests.jdbcClient());
+    private final Books books = new Books(TestDatabase.jdbcClient());
 
     @Test
     void seededTopicsAndBooksAreThere() {

@@ -12,8 +12,8 @@ import org.junit.jupiter.api.Test;
 /** Reserving and releasing stock against a real PostgreSQL. */
 class StockTest {
 
-    private final Books books = new Books(PostgresForTests.jdbcClient());
-    private final Stock stock = new Stock(PostgresForTests.jdbcClient());
+    private final Books books = new Books(TestDatabase.jdbcClient());
+    private final Stock stock = new Stock(TestDatabase.jdbcClient());
 
     @Test
     void reserveTakesStockAndKeepsThePriceOfTheOrder() {
