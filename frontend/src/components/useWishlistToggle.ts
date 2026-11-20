@@ -11,7 +11,7 @@ export function useWishlistToggle() {
     async (id: number) => {
       if (!user) {
         toast('Log in to save books to your wishlist');
-        navigate(`/login?next=${encodeURIComponent(location.pathname)}`);
+        void navigate(`/login?next=${encodeURIComponent(location.pathname)}`);
         return;
       }
       await toggleWishlist(id);

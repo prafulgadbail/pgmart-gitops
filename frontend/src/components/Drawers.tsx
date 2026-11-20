@@ -30,7 +30,8 @@ export function Drawers() {
 
   return (
     <>
-      <div className={`ov${drawer ? ' show' : ''}`} style={{ zIndex: 45 }} onClick={() => setDrawer(null)} />
+      <button type="button" className={`ov${drawer ? ' show' : ''}`} style={{ zIndex: 45 }} aria-label="Close" tabIndex={-1}
+        onClick={() => setDrawer(null)} />
       <aside className={`drawer${drawer ? ' show' : ''}`} aria-hidden={!drawer}>
         {drawer === 'cart' && (
           <>
@@ -68,7 +69,7 @@ export function Drawers() {
                 <div className="row"><span className="mut">Price (MRP)</span><s className="mut">{inr(mrp)}</s></div>
                 <div className="row"><span style={{ color: 'var(--ok)' }}>You save</span><b style={{ color: 'var(--ok)' }}>{inr(mrp - total)}</b></div>
                 <div className="row"><b>Total</b><b style={{ color: 'var(--a)' }}>{inr(total)}</b></div>
-                <button className="btn p" onClick={() => { setDrawer(null); navigate('/checkout'); }}>Proceed to checkout</button>
+                <button className="btn p" onClick={() => { setDrawer(null); void navigate('/checkout'); }}>Proceed to checkout</button>
               </>
             )}
           </>
@@ -84,17 +85,26 @@ export function Drawers() {
             </div>
             <div style={{ flex: 1, overflow: 'auto' }}>
               {notifications.length === 0 && <div className="empty">No notifications yet. Order updates show up here.</div>}
-              {notifications.map((n) => (
-                <div className={`nt${n.read ? '' : ' nw'}`} key={n.id} style={{ cursor: n.orderId ? 'pointer' : undefined }}
-                  onClick={() => { if (n.orderId) { setDrawer(null); navigate('/orders'); } }}>
-                  <span className="ni">{icon(n.title)}</span>
-                  <div>
-                    <div><b>{n.title}</b></div>
-                    <div className="mut" style={{ fontSize: 14 }}>{n.body}</div>
-                    <small className="mut">{timeAgo(n.createdAt)}</small>
-                  </div>
-                </div>
-              ))}
+              {notifications.map((n) => {
+                const body = (
+                  <>
+                    <span className="ni">{icon(n.title)}</span>
+                    <div>
+                      <div><b>{n.title}</b></div>
+                      <div className="mut" style={{ fontSize: 14 }}>{n.body}</div>
+                      <small className="mut">{timeAgo(n.createdAt)}</small>
+                    </div>
+                  </>
+                );
+                const cls = `nt${n.read ? '' : ' nw'}`;
+                return n.orderId ? (
+                  <button type="button" className={cls} key={n.id} onClick={() => { setDrawer(null); void navigate('/orders'); }}>
+                    {body}
+                  </button>
+                ) : (
+                  <div className={cls} key={n.id}>{body}</div>
+                );
+              })}
             </div>
           </>
         )}

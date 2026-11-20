@@ -22,7 +22,7 @@ export function Login() {
   const [info, setInfo] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user) navigate(next ?? (user.role === 'ADMIN' ? '/admin' : '/'), { replace: true });
+    if (user) void navigate(next ?? (user.role === 'ADMIN' ? '/admin' : '/'), { replace: true });
   }, [user, next, navigate]);
 
   const go = (m: Mode) => {
@@ -123,7 +123,7 @@ export function Login() {
         )}
 
         {error && <p className="err">{error}</p>}
-        <button className="btn p" style={{ width: '100%', marginTop: 14 }} disabled={busy}>{busy ? 'Please wait…' : button}</button>
+        <button type="submit" className="btn p" style={{ width: '100%', marginTop: 14 }} disabled={busy}>{busy ? 'Please wait…' : button}</button>
 
         <p className="mut" style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
           {mode === 'login' && <button type="button" className="lnk" onClick={() => go('forgot')}>Forgot password?</button>}

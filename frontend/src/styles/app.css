@@ -17,3 +17,7 @@ textarea.in2{resize:vertical}
 .cc div{margin:0}
 .tp{text-align:center;padding-top:20px}
 .paper ol,.paper ul{padding-left:20px}
+/* Overlays close on a click outside: the backdrop is a real button (Escape closes them too) */
+button.ov{border:0;padding:0;margin:0;width:100%;cursor:default}.ov .bk{position:absolute;inset:0;border:0;padding:0;background:none;cursor:default}.ov .pal{position:relative}
+button.nt{width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;color:inherit;font:inherit;cursor:pointer}
+.cd h4 a{color:inherit;text-decoration:none}

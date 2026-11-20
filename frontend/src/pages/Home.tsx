@@ -20,9 +20,9 @@ export function Home() {
         </div>
         <div className="shelf">
           {(shelf.length ? shelf : books.slice(0, 3)).map((b) => (
-            <div className="book" key={b.id} onClick={() => navigate(`/book/${b.id}`)} style={{ cursor: 'pointer' }}>
+            <Link className="book" key={b.id} to={`/book/${b.id}`} aria-label={b.title} style={{ display: 'block' }}>
               <Cover book={b} />
-            </div>
+            </Link>
           ))}
         </div>
       </section>
