@@ -150,7 +150,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "deploy($SERVICE): image ${GITHUB_SHA::7}"
-          git push
+          # The other services may push at the same time: take their commits and try again
+          for attempt in 1 2 3 4 5; do
+            git push && exit 0
+            sleep $((attempt * 3))
+            git pull --rebase
+          done
+          exit 1
 
       # ---------- Test and coverage reports to download (kept even when a stage fails) ----------
       - name: Test and coverage reports
