@@ -12,8 +12,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** Payment options for the checkout page, and the Razorpay webhook. */
 @RestController
@@ -49,11 +49,11 @@ public class PaymentController {
             return ResponseEntity.status(400).build();
         }
         JsonNode event = json.readTree(body);
-        String type = event.path("event").asText();
+        String type = event.path("event").asString();
         JsonNode payment = event.path("payload").path("payment").path("entity");
         log.info("Razorpay webhook {}", type);
         if ("payment.captured".equals(type) || "order.paid".equals(type)) {
-            service.markPaid(payment.path("order_id").asText(), payment.path("id").asText(), "webhook");
+            service.markPaid(payment.path("order_id").asString(), payment.path("id").asString(), "webhook");
         }
         // payment.failed: nothing to do, the customer can retry from "Your orders" until the order expires
         return ResponseEntity.ok().build();
